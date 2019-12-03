@@ -56,6 +56,8 @@ parser.add_argument("--reconstruction-likelihood-coef", type=float, default=0.0,
                     help="reconstruction likelihood coef")
 parser.add_argument("--KLD-coef", type=float, default=0.0, 
                     help="KLD coef")
+parser.add_argument("--latent-transition-coef", type=float, default=0.0, 
+                    help="latent transition loss coef")
 parser.add_argument("--entropy-coef", type=float, default=0.01,
                     help="entropy term coefficient (default: 0.01)")
 parser.add_argument("--value-loss-coef", type=float, default=0.5,
@@ -182,7 +184,8 @@ elif args.algo == "ppo":
                             args.entropy_coef, args.value_loss_coef, args.max_grad_norm, args.recurrence,
                             args.optim_eps, args.clip_eps, args.epochs, args.batch_size, preprocess_obss,
                             beta=args.beta, use_l2w=args.use_l2w, sni_type=args.sni_type, policy_loss_coef=args.policy_loss_coef,
-                            reconstruction_likelihood_coef=args.reconstruction_likelihood_coef, KLD_coef=args.KLD_coef)
+                            reconstruction_likelihood_coef=args.reconstruction_likelihood_coef, KLD_coef=args.KLD_coef,
+                            latent_transition_coef=args.latent_transition_coef)
 else:
     raise ValueError("Incorrect algorithm name: {}".format(args.algo))
 

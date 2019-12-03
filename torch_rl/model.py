@@ -47,9 +47,12 @@ class ACModel(nn.Module):
                 nn.ConvTranspose2d(16, 6, 3, padding=1, stride=1)
             )
 
+            self.num_actions = 7
+            self.latent_transition = nn.Sequential(nn.Conv2d(32, 32 * 2 * self.num_actions, 3, padding=1, stride=1))
+
         # Not supported with current bottleneck
 
-        # Resize image embedding
+        # Resize image embedding    
         self.embedding_size = 512
 
         # Define actor's model
@@ -71,11 +74,9 @@ class ACModel(nn.Module):
             nn.Linear(512, 1)
         )
 
-        self.latent_transition = nn.Sequential(
-            nn.Conv2d(32, 32, 3, padding=1, stride=2))
-
         # Initialize parameters correctly
         self.apply(initialize_parameters)
+        print(self.latent_transition)
 
     @property
     def memory_size(self):
@@ -90,9 +91,7 @@ class ACModel(nn.Module):
         x = torch.transpose(torch.transpose(obs.image, 1, 3), 2, 3)
         embedding = self.image_conv(x)
         mean = embedding[:, :32]
-        import pdb; pdb.set_trace()
         log_variance = embedding[:, 32:]
-
         return mean, log_variance
 
     def vae_reparameterize(self, mu, logvar):
@@ -102,7 +101,7 @@ class ACModel(nn.Module):
 
     def vae_decode(self, z):
         reconstructed_img = self.image_deconv(z)
-        reconstructed_img_mean = reconstructed_img[:, 0:3]
+        reconstructed_img_mean = reconstructed_img[:, :3]
         reconstructed_img_variance = reconstructed_img[:, 3:]
         return reconstructed_img_mean, reconstructed_img_variance
 
@@ -113,13 +112,18 @@ class ACModel(nn.Module):
         return reconstructed_img_mean, reconstructed_img_variance, mu, logvar
 
     # Latent transition model functions.
-    def transition_forward(self, latent_obs, next_obs, action):
-        next_image = torch.transpose(torch.transpose(next_obs.image, 1, 3), 2, 3)
-        next_image_embedding = self.image_conv(next_image)
-        mean = next_image_embedding[:, :32]
-        log_variance = next_image_embedding[:, 32:]
-        next_mean = self.latent_transition(mean)
+    def transition_forward(self, obs, next_obs, action):
+        latent_mean, latent_log_var = self.vae_encode(obs)
+        latent_obs = latent_mean
 
+        next_latent_mean, next_latent_log_var = self.vae_encode(next_obs)
+        next_latent_embeddings_pred = self.latent_transition(latent_obs)
+        next_latent_embeddings_pred = next_latent_embeddings_pred.view(-1, self.num_actions, 64, 4, 4)
+        next_latent_embeddings_pred = next_latent_embeddings_pred.gather(1, action.long().view(-1, 1, 1, 1, 1).expand(next_latent_embeddings_pred.shape[0], 1, 64, 4, 4)).squeeze()
+        next_latent_mean_pred = next_latent_embeddings_pred[:, :32]
+        next_latent_log_var_pred = next_latent_embeddings_pred[:, 32:]
+
+        return next_latent_mean_pred, next_latent_log_var_pred
 
     # RL agent functions.
     def encode(self, obs):

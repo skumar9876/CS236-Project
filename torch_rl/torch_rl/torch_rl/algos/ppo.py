@@ -12,7 +12,7 @@ class PPOAlgo(BaseAlgo):
                  entropy_coef=0.01, value_loss_coef=0.5, max_grad_norm=0.5, recurrence=4,
                  adam_eps=1e-8, clip_eps=0.2, epochs=4, batch_size=256, preprocess_obss=None,
                  reshape_reward=None, beta=1, use_l2w=False, sni_type=None, policy_loss_coef=1.0, 
-                 reconstruction_likelihood_coef=0.0, KLD_coef=0.0):
+                 reconstruction_likelihood_coef=0.0, KLD_coef=0.0, latent_transition_coef=0.0):
         num_frames_per_proc = num_frames_per_proc or 128
 
         super().__init__(envs, acmodel, num_frames_per_proc, discount, lr, gae_lambda, entropy_coef,
@@ -26,6 +26,7 @@ class PPOAlgo(BaseAlgo):
         self.policy_loss_coef = policy_loss_coef
         self.reconstruction_likelihood_coef = reconstruction_likelihood_coef
         self.KLD_coef = KLD_coef
+        self.latent_transition_coef = latent_transition_coef
 
         assert self.batch_size % self.recurrence == 0
 
@@ -69,6 +70,23 @@ class PPOAlgo(BaseAlgo):
 
                     # Compute loss
 
+                    # Use the current observation, action, and next observation to construct the latent transition loss.
+                    transition_loss = 0
+                    try:
+                        sb_next = exps[inds + i + 1]
+                        obs = sb.obs
+                        next_obs = sb_next.obs
+                        action = sb.action
+                        next_latent_mean_pred, next_latent_log_var_pred = self.acmodel.transition_forward(obs, next_obs, action)
+                        next_latent_mean, _ = self.acmodel.vae_encode(next_obs)
+
+                        transition_loss = (next_latent_mean_pred - next_latent_mean)**2 / torch.exp(next_latent_log_var_pred)
+                        transition_loss = transition_loss.mean()
+                    except:
+                        # Note: This except block is here for when the indices are already at the final observations in the batch, 
+                        #       so there are no next observations to index.
+                        pass
+
                     # Compute VAE loss
                     recon_obs_mu, recon_obs_logvar, mu, logvar = self.acmodel.vae_forward(sb.obs)
                     reconstruction_normal_dist = torch.distributions.normal.Normal(recon_obs_mu[:, :, :-1, :-1], torch.exp(0.5*recon_obs_logvar[:, :, :-1, :-1]))
@@ -98,7 +116,7 @@ class PPOAlgo(BaseAlgo):
                     value_loss = torch.max(surr1, surr2).mean()
 
 
-                    loss = self.policy_loss_coef * policy_loss - self.entropy_coef * entropy + self.value_loss_coef * value_loss - self.reconstruction_likelihood_coef * reconstruction_likelihood + self.KLD_coef * KLD
+                    loss = self.policy_loss_coef * policy_loss - self.entropy_coef * entropy + self.value_loss_coef * value_loss - self.reconstruction_likelihood_coef * reconstruction_likelihood + self.KLD_coef * KLD + self.latent_transition_coef * transition_loss
 
                     # Update batch values
 

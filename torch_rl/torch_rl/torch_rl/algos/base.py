@@ -213,24 +213,6 @@ class BaseAlgo(ABC):
             "num_frames": self.num_frames
         }
 
-        if self.dro_train_scheme == "num_steps":
-            # Sort the logged number of frames.
-            sorted_log_frames_indices = numpy.argsort(self.log_num_frames)
-            start_index = int((1 - 0.2) * len(sorted_log_frames_indices)) 
-            for ind in range(start_index, len(sorted_log_frames_indices)):
-                env_seed_index = sorted_log_frames_indices[ind]
-                self.env.add_dro_seed(self.log_env_seeds[env_seed_index])
-
-        elif self.dro_train_scheme == "success_rate":
-            for ind in range(0, len(self.log_num_frames)):
-                # if (self.log_num_frames[ind] >= self.env.envs[0].max_steps):
-                if self.log_num_frames[ind] > 0 and self.log_num_frames[ind] < 50:
-                    # print(ind, self.log_num_frames[ind], self.env.envs[0].max_steps, self.log_env_seeds[ind])
-                    self.env.add_dro_seed(self.log_env_seeds[ind])
-                else:
-                    # print(ind, self.log_num_frames[ind], self.env.envs[0].max_steps, self.log_env_seeds[ind])
-                    self.env.remove_dro_seed(self.log_env_seeds[ind])
-
         self.log_done_counter = 0
         self.log_return = self.log_return[-self.num_procs:]
         self.log_reshaped_return = self.log_reshaped_return[-self.num_procs:]
