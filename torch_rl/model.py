@@ -17,7 +17,8 @@ def initialize_parameters(m):
 
 class ACModel(nn.Module):
     def __init__(self, obs_space, action_space, model_type="default", use_bottleneck=False,
-                 dropout=0, use_l2a=False, use_bn=False, sni_type=None):
+                 dropout=0, use_l2a=False, use_bn=False, sni_type=None, flow: bool = False,
+                 flow_depth: int = 3):
         super().__init__()
 
         # Decide which components are enabled
@@ -25,9 +26,21 @@ class ACModel(nn.Module):
         self.use_l2a = use_l2a
         self.dropout = dropout
         self.model_type = model_type
+        self.flow = flow
+        self.flow_depth = flow_depth
+        self.action_space = action_space
         n = obs_space["image"][0]
         m = obs_space["image"][1]
         print(n,m)
+
+        if flow:
+            self.flow_estimator = nn.Sequential(
+                nn.Linear(32 + action_space.n, 128),
+                nn.ReLU(),
+                nn.Linear(128, 128),
+                nn.ReLU(),
+                nn.Linear(128, flow_depth * (32 * 33) / 2)
+            )
 
         # Define image embedding
         if model_type == "default2":
@@ -47,7 +60,7 @@ class ACModel(nn.Module):
                 nn.ConvTranspose2d(16, 6, 3, padding=1, stride=1)
             )
 
-            self.num_actions = 7
+            self.num_actions = action_space.n
             self.latent_transition = nn.Sequential(nn.Conv2d(32, 32 * 2 * self.num_actions, 3, padding=1, stride=1))
 
         # Not supported with current bottleneck
@@ -112,11 +125,10 @@ class ACModel(nn.Module):
         return reconstructed_img_mean, reconstructed_img_variance, mu, logvar
 
     # Latent transition model functions.
-    def transition_forward(self, obs, next_obs, action):
+    def transition_forward(self, obs, action):
         latent_mean, latent_log_var = self.vae_encode(obs)
         latent_obs = latent_mean
 
-        next_latent_mean, next_latent_log_var = self.vae_encode(next_obs)
         next_latent_embeddings_pred = self.latent_transition(latent_obs)
         next_latent_embeddings_pred = next_latent_embeddings_pred.view(-1, self.num_actions, 64, 4, 4)
         next_latent_embeddings_pred = next_latent_embeddings_pred.gather(1, action.long().view(-1, 1, 1, 1, 1).expand(next_latent_embeddings_pred.shape[0], 1, 64, 4, 4)).squeeze()
@@ -125,6 +137,15 @@ class ACModel(nn.Module):
 
         return next_latent_mean_pred, next_latent_log_var_pred
 
+    def transition_flow_forward(self, obs, action):
+        latent_obs, _ = self.vae_encode(obs)
+        one_hot_action = torch.zeros(obs.shape[0], self.action_space.n, device=obs.device)
+        one_hot_action[torch.arange(obs.shape[0]), action] = 1
+        flow_theta = self.flow_estimator(torch.cat((latent_obs, one_hot_action), -1)).view(obs.shape[0], self.flow_depth, -1)
+        # INCOMPLETE
+        
+        
+    
     # RL agent functions.
     def encode(self, obs):
         embedding, _ = self.vae_encode(obs)

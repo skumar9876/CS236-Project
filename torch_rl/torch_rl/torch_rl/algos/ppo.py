@@ -77,7 +77,7 @@ class PPOAlgo(BaseAlgo):
                         obs = sb.obs
                         next_obs = sb_next.obs
                         action = sb.action
-                        next_latent_mean_pred, next_latent_log_var_pred = self.acmodel.transition_forward(obs, next_obs, action)
+                        next_latent_mean_pred, next_latent_log_var_pred = self.acmodel.transition_forward(obs, action)
                         next_latent_mean, _ = self.acmodel.vae_encode(next_obs)
 
                         transition_loss = (next_latent_mean_pred - next_latent_mean)**2 / torch.exp(next_latent_log_var_pred)
