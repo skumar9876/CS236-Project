@@ -789,6 +789,8 @@ class MiniGridEnv(gym.Env):
         self.dro_mixing_coefficient = 0.2
         self.eval_seed = 0
 
+        self.stochastic = False
+
         # Initialize the state
         self.reset()
     
@@ -1206,6 +1208,11 @@ class MiniGridEnv(gym.Env):
         return obs_cell is not None and obs_cell.type == world_cell.type
 
     def step(self, action):
+
+        if self.stochastic:
+            if np.random.random() < 0.1:
+                action = np.random.randint(0, 2)
+
         self.step_count += 1
 
         reward = 0

@@ -269,6 +269,19 @@ class MultiRoomEnvN6(MultiRoomEnv):
 #         )
 
 register(
+    id='MiniGrid-MultiRoom-N5r_1_2r-v1',
+    entry_point='gym_minigrid.envs:MultiRoomEnv',
+    reward_threshold=1000.0,
+    kwargs = {
+        'minNumRooms': 1,
+        'maxNumRooms': 2,
+        'maxRoomSize': 6,
+        'grid_size': 11,
+        'max_steps': 500
+    }
+)
+
+register(
     id='MiniGrid-MultiRoom-N3r-v1',
     entry_point='gym_minigrid.envs:MultiRoomEnv',
     reward_threshold=1000.0,

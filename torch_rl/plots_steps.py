@@ -22,22 +22,23 @@ def movingaverage (values, window):
 
 agg_fn = np.mean
 # plotname = "Paper_N3r.pdf"
-window_size = 3
+window_size = 10
 plot_std_err = True
 # ylims = (5.5, 10)
 # ylims = (4, 10)
 xlims = None
-max_step = 50000
+max_step = 150000
 
-dro_type = 'successrate'
-# dro_type = 'numsteps'
+env_type = "deterministic" # "stochastic" # "deterministic"
 
 path = 'storage/{}/'
-plotname = 'storage/plot.pdf'
+plotname = 'storage/{}/plot.pdf'.format(env_type)
 
 experiments = {
-     "PPO": ["ppo"],
-     "PPO+VAE": ["test"],
+     "PPO": ["{}/ppo_{}".format(env_type, i) for i in range(2, 4)],
+     "PPO+VAE": ["{}/ppo_vae_{}".format(env_type, i) for i in range(2, 4)],
+     "PPO+Transition": ["{}/ppo_transition_{}".format(env_type, i) for i in range(2, 4)],
+     "PPO+VAE+Transition": ["{}/ppo_vae_transition_{}".format(env_type, i) for i in range(2, 4)]
 }
 
 
