@@ -29,18 +29,10 @@ class ACModel(nn.Module):
         self.flow = flow
         self.flow_depth = flow_depth
         self.action_space = action_space
+        self.latent_dim = 32
         n = obs_space["image"][0]
         m = obs_space["image"][1]
         print(n,m)
-
-        if flow:
-            self.flow_estimator = nn.Sequential(
-                nn.Linear(32 + action_space.n, 128),
-                nn.ReLU(),
-                nn.Linear(128, 128),
-                nn.ReLU(),
-                nn.Linear(128, flow_depth * (32 * 33) / 2)
-            )
 
         # Define image embedding
         if model_type == "default2":
@@ -61,13 +53,23 @@ class ACModel(nn.Module):
             )
 
             self.num_actions = action_space.n
-            self.latent_transition = nn.Sequential(nn.Conv2d(32, 32 * 2 * self.num_actions, 3, padding=1, stride=1))
+            self.latent_transition = nn.Sequential(nn.Conv2d(self.latent_dim, self.latent_dim * 2 * self.num_actions, 3, padding=1, stride=1))
 
         # Not supported with current bottleneck
 
         # Resize image embedding    
         self.embedding_size = 512
 
+        print(flow)
+        if flow:
+            self.flow_estimator = nn.Sequential(
+                nn.Linear(self.embedding_size + action_space.n, 128),
+                nn.ReLU(),
+                nn.Linear(128, 128),
+                nn.ReLU(),
+                nn.Linear(128, flow_depth * self.embedding_size * (self.embedding_size + 1) // 2)
+            )
+        
         # Define actor's model
         if not isinstance(action_space, gym.spaces.Discrete):
             raise ValueError("Unknown action space: " + str(action_space))
@@ -137,14 +139,62 @@ class ACModel(nn.Module):
 
         return next_latent_mean_pred, next_latent_log_var_pred
 
-    def transition_flow_forward(self, obs, action):
+    def _get_flow_weights(self, latent_obs, action, inverse: bool = False):
+        one_hot_action = torch.zeros(latent_obs.shape[0], self.action_space.n, device=latent_obs.device)
+        one_hot_action[torch.arange(latent_obs.shape[0], device=latent_obs.device).long(), action.long()] = 1
+        flow_theta = self.flow_estimator(torch.cat((latent_obs.view(latent_obs.shape[0], -1), one_hot_action), -1)).view(latent_obs.shape[0] * self.flow_depth, -1)
+        idxs = torch.tril_indices(self.embedding_size, self.embedding_size, device=latent_obs.device).repeat(1, latent_obs.shape[0] * self.flow_depth)
+        batch_idxs = torch.arange(latent_obs.shape[0], device=latent_obs.device).unsqueeze(0).repeat(flow_theta.shape[-1] * self.flow_depth, 1).permute(1,0).reshape(-1).long()
+        W = torch.zeros(latent_obs.shape[0] * self.flow_depth, self.embedding_size, self.embedding_size, device=latent_obs.device)
+        W[batch_idxs,idxs[0],idxs[1]] = flow_theta.view(-1)
+        batch_diag = torch.eye(W.shape[-1], device=W.device).unsqueeze(0).repeat(W.shape[0], 1, 1).bool()
+        W[batch_diag] = W[batch_diag].exp()
+        if inverse:
+            W = W.inverse()
+        W = W.view(latent_obs.shape[0], self.flow_depth, self.embedding_size, self.embedding_size)
+        return W
+
+    def _inv_lr(self, y, coef: float = 0.1):
+        y[y<0] = y[y<0] / coef
+    
+    def transition_flow_forward(self, obs, action, lr_coef: float = 0.1):
         latent_obs, _ = self.vae_encode(obs)
-        one_hot_action = torch.zeros(obs.shape[0], self.action_space.n, device=obs.device)
-        one_hot_action[torch.arange(obs.shape[0]), action] = 1
-        flow_theta = self.flow_estimator(torch.cat((latent_obs, one_hot_action), -1)).view(obs.shape[0], self.flow_depth, -1)
-        # INCOMPLETE
-        
-        
+        W = self._get_flow_weights(latent_obs, action)
+        z = torch.empty_like(latent_obs.view(latent_obs.shape[0], -1)).normal_()
+        for idx in range(self.flow_depth):
+            z = torch.bmm(W[:,idx], z.unsqueeze(-1)).squeeze(-1)
+            if idx < self.flow_depth - 1:
+                z = F.leaky_relu(z, lr_coef)
+            
+        return z.view(latent_obs.shape)
+
+    def transition_flow_inverse(self, obs, action, next_obs, lr_coef: float = 0.1):
+        latent_obs, _ = self.vae_encode(obs)
+        next_latent_obs, _ = self.vae_encode(next_obs)
+        W = self._get_flow_weights(latent_obs, action, inverse=True)
+        x = next_latent_obs.view(next_latent_obs.shape[0], -1)
+        log_det = torch.zeros(x.shape[0], device=x.device)
+        for idx in reversed(range(self.flow_depth)):
+            if idx < self.flow_depth - 1:
+                self._inv_lr(x)
+
+            act_jacob = torch.ones_like(x)
+            act_jacob[x<0] = 1/lr_coef
+            log_det += act_jacob.log().sum(-1)
+            
+            x = torch.bmm(W[:,idx], x.unsqueeze(-1)).squeeze(-1)
+
+            weights = W[:,idx]
+            eye = torch.eye(weights.shape[-1], device=W.device).unsqueeze(0).repeat(weights.shape[0], 1, 1).bool()
+            diag = weights[eye].view(weights.shape[0], self.embedding_size)
+            w_log_det = diag.abs().log().sum(-1)
+
+            log_det += w_log_det
+
+        log_prob = torch.distributions.Normal(torch.zeros(self.embedding_size, device=x.device),
+                                              torch.ones(self.embedding_size, device=x.device)).log_prob(x)
+
+        return x, -(log_prob.sum(-1) + log_det).mean()
     
     # RL agent functions.
     def encode(self, obs):
