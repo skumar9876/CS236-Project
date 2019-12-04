@@ -20,6 +20,7 @@ from torch_rl.utils import ParallelEnv
 # Parse arguments
 
 parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
+parser.add_argument("--flow", action="store_true", help="use normalizing flow transition model")
 parser.add_argument("--algo", required=True,
                     help="algorithm to use: a2c | ppo (REQUIRED)")
 parser.add_argument("--env", required=True,
@@ -161,7 +162,7 @@ try:
 except OSError:
     acmodel = ACModel(obs_space, envs[0].action_space, args.model_type,
                       use_bottleneck=args.use_bottleneck, dropout=args.use_dropout, use_l2a=args.use_l2a,
-                      use_bn=args.use_bn, sni_type=args.sni_type)
+                      use_bn=args.use_bn, sni_type=args.sni_type, flow=args.flow)
 
     logger.info("Model successfully created\n")
 logger.info("{}\n".format(acmodel))
@@ -185,7 +186,7 @@ elif args.algo == "ppo":
                             args.optim_eps, args.clip_eps, args.epochs, args.batch_size, preprocess_obss,
                             beta=args.beta, use_l2w=args.use_l2w, sni_type=args.sni_type, policy_loss_coef=args.policy_loss_coef,
                             reconstruction_likelihood_coef=args.reconstruction_likelihood_coef, KLD_coef=args.KLD_coef,
-                            latent_transition_coef=args.latent_transition_coef)
+                            latent_transition_coef=args.latent_transition_coef, flow=args.flow)
 else:
     raise ValueError("Incorrect algorithm name: {}".format(args.algo))
 
