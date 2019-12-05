@@ -150,11 +150,10 @@ class ACModel(nn.Module):
         W[batch_idxs,idxs[0],idxs[1]] = flow_theta.view(-1)
         batch_diag = torch.eye(W.shape[-1], device=W.device).unsqueeze(0).repeat(W.shape[0], 1, 1).bool()
         W += batch_diag
-        W[batch_diag] = W[batch_diag].exp()
+        W[batch_diag] = F.softplus(W[batch_diag])
         W = W.view(latent_obs.shape[0], self.flow_depth, self.embedding_size, self.embedding_size)
         if inverse:
-            Winv = W.inverse()
-            return W, Winv
+            return W, W.inverse()
         else:
             return W
 
@@ -182,23 +181,25 @@ class ACModel(nn.Module):
             if idx < self.flow_depth - 1:
                 self._inv_lr(x)
 
-            act_jacob = torch.ones_like(x)
-            act_jacob[x<0] = 1/lr_coef
-            log_det += act_jacob.log().sum(-1)
+                act_jacob = torch.ones_like(x)
+                act_jacob[x<0] = lr_coef
+                log_det += act_jacob.log().sum(-1)
             
             x = torch.bmm(Winv[:,idx], x.unsqueeze(-1)).squeeze(-1)
+
             weights = W[:,idx]
             eye = torch.eye(weights.shape[-1], device=W.device).unsqueeze(0).repeat(weights.shape[0], 1, 1).bool()
             diag = weights[eye].view(weights.shape[0], self.embedding_size)
-            w_log_det = -diag.abs().log().sum(-1)
+            w_log_det = diag.log().sum(-1)
 
             log_det += w_log_det
 
         log_prob = torch.distributions.Normal(torch.zeros(self.embedding_size, device=x.device),
-                                              torch.ones(self.embedding_size, device=x.device)).log_prob(x)
-        loss = -(log_prob.sum(-1) + log_det).mean()
-        print(log_prob.sum(-1).mean().detach().item(), log_det.mean().detach().item(), loss.detach().item(), W.pow(2).mean())
-        return x, 0.01 * loss
+                                              torch.ones(self.embedding_size, device=x.device)).log_prob(x).sum(-1)
+        
+        loss = -(log_prob - log_det).mean()
+        print(x.shape[0], latent_obs.shape, log_prob.mean().detach().item(), log_det.mean().detach().item(), loss.detach().item(), W.pow(2).mean())
+        return x, loss
 
     # RL agent functions.
     def encode(self, obs):
