@@ -20,7 +20,6 @@ from torch_rl.utils import ParallelEnv
 # Parse arguments
 
 parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
-parser.add_argument("--flow", action="store_true", help="use normalizing flow transition model")
 parser.add_argument("--algo", required=True,
                     help="algorithm to use: a2c | ppo (REQUIRED)")
 parser.add_argument("--env", required=True,
@@ -103,6 +102,11 @@ parser.add_argument("--num_train_environments", type=int, default=10000000000000
                     help="Number of training environments to use.")
 parser.add_argument("--num_test_environments", type=int, default=100,
                     help="Number of test environments to use.")
+parser.add_argument("--stochastic", action="store_true", default=False,
+                    help="Stochasticity of environment.")
+parser.add_argument("--num_latent_channels", type=int, default=32, 
+                    help="Number of channels for the latent state.")
+parser.add_argument("--flow", action="store_true", help="use normalizing flow transition model")
 args = parser.parse_args()
 
 assert args.sni_type is None or args.sni_type in ['vib', 'dropout']
@@ -136,6 +140,7 @@ envs = []
 for i in range(args.procs):
     env = gym.make(args.env)
     env.seed(args.seed + 10000*i)
+    env.stochastic = args.stochastic
     env.num_train_environments = args.num_train_environments
     if args.fullObs:
         env = gym_minigrid.wrappers.FullyObsWrapper(env)
@@ -161,8 +166,9 @@ try:
     logger.info("Model successfully loaded\n")
 except OSError:
     acmodel = ACModel(obs_space, envs[0].action_space, args.model_type,
-                      use_bottleneck=args.use_bottleneck, dropout=args.use_dropout, use_l2a=args.use_l2a,
-                      use_bn=args.use_bn, sni_type=args.sni_type, flow=args.flow)
+                      use_bottleneck=args.use_bottleneck, dropout=args.use_dropout, 
+                      use_l2a=args.use_l2a, use_bn=args.use_bn, sni_type=args.sni_type, 
+                      flow=args.flow, num_latent_channels=args.num_latent_channels)
 
     logger.info("Model successfully created\n")
 logger.info("{}\n".format(acmodel))

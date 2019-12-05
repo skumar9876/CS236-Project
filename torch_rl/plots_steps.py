@@ -29,7 +29,7 @@ plot_std_err = True
 xlims = None
 max_step = 150000
 
-env_type = "deterministic" # "stochastic" # "deterministic"
+env_type = "stochastic_4_channels" # "stochastic" # "deterministic"
 
 path = 'storage/{}/'
 plotname = 'storage/{}/plot.pdf'.format(env_type)

@@ -18,7 +18,7 @@ def initialize_parameters(m):
 class ACModel(nn.Module):
     def __init__(self, obs_space, action_space, model_type="default", use_bottleneck=False,
                  dropout=0, use_l2a=False, use_bn=False, sni_type=None, flow: bool = False,
-                 flow_depth: int = 3):
+                 flow_depth: int = 3, num_latent_channels: int = 32):
         super().__init__()
 
         # Decide which components are enabled
@@ -29,7 +29,7 @@ class ACModel(nn.Module):
         self.flow = flow
         self.flow_depth = flow_depth
         self.action_space = action_space
-        self.latent_dim = 32
+        self.latent_dim = num_latent_channels
         n = obs_space["image"][0]
         m = obs_space["image"][1]
         print(n,m)
@@ -41,11 +41,11 @@ class ACModel(nn.Module):
                 nn.ReLU(),
                 nn.Conv2d(16, 32, 3, padding=1, stride=2),
                 nn.ReLU(),
-                nn.Conv2d(32, 64, 3, padding=1, stride=2)
+                nn.Conv2d(32, self.latent_dim * 2, 3, padding=1, stride=2)
             )
 
             self.image_deconv = nn.Sequential(
-                nn.ConvTranspose2d(32, 32, 3, padding=1, stride=2, output_padding=1), 
+                nn.ConvTranspose2d(self.latent_dim, 32, 3, padding=1, stride=2, output_padding=1), 
                 nn.ReLU(),
                 nn.ConvTranspose2d(32, 16, 3, padding=1, stride=2, output_padding=1),
                 nn.ReLU(),
@@ -58,7 +58,7 @@ class ACModel(nn.Module):
         # Not supported with current bottleneck
 
         # Resize image embedding    
-        self.embedding_size = 512
+        self.embedding_size = self.latent_dim * 4 * 4
 
         print(flow)
         if flow:
@@ -79,14 +79,14 @@ class ACModel(nn.Module):
         self.actor = nn.Sequential(
             # nn.Linear(self.embedding_size, 64),
             nn.Tanh(),
-            nn.Linear(512, action_space.n)
+            nn.Linear(self.embedding_size, action_space.n)
         )
 
         # Define critic's model
         self.critic = nn.Sequential(
             # nn.Linear(self.embedding_size, 64),
             nn.Tanh(),
-            nn.Linear(512, 1)
+            nn.Linear(self.embedding_size, 1)
         )
 
         # Initialize parameters correctly
@@ -105,8 +105,8 @@ class ACModel(nn.Module):
     def vae_encode(self, obs):
         x = torch.transpose(torch.transpose(obs.image, 1, 3), 2, 3)
         embedding = self.image_conv(x)
-        mean = embedding[:, :32]
-        log_variance = embedding[:, 32:]
+        mean = embedding[:, :self.latent_dim]
+        log_variance = embedding[:, self.latent_dim:]
         return mean, log_variance
 
     def vae_reparameterize(self, mu, logvar):
@@ -132,10 +132,10 @@ class ACModel(nn.Module):
         latent_obs = latent_mean
 
         next_latent_embeddings_pred = self.latent_transition(latent_obs)
-        next_latent_embeddings_pred = next_latent_embeddings_pred.view(-1, self.num_actions, 64, 4, 4)
-        next_latent_embeddings_pred = next_latent_embeddings_pred.gather(1, action.long().view(-1, 1, 1, 1, 1).expand(next_latent_embeddings_pred.shape[0], 1, 64, 4, 4)).squeeze()
-        next_latent_mean_pred = next_latent_embeddings_pred[:, :32]
-        next_latent_log_var_pred = next_latent_embeddings_pred[:, 32:]
+        next_latent_embeddings_pred = next_latent_embeddings_pred.view(-1, self.num_actions, 2 * self.latent_dim, 4, 4)
+        next_latent_embeddings_pred = next_latent_embeddings_pred.gather(1, action.long().view(-1, 1, 1, 1, 1).expand(next_latent_embeddings_pred.shape[0], 1, 2 * self.latent_dim, 4, 4)).squeeze()
+        next_latent_mean_pred = next_latent_embeddings_pred[:, :self.latent_dim]
+        next_latent_log_var_pred = next_latent_embeddings_pred[:, self.latent_dim:]
 
         return next_latent_mean_pred, next_latent_log_var_pred
 

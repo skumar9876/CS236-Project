@@ -73,26 +73,25 @@ class PPOAlgo(BaseAlgo):
 
                     # Use the current observation, action, and next observation to construct the latent transition loss.
                     transition_loss = 0
-                    #try:
-                    sb_next = exps[inds + i + 1]
-                    obs = sb.obs
-                    next_obs = sb_next.obs
-                    action = sb.action
-                    if self.flow:
-                        _, neg_log_prob = self.acmodel.transition_flow_inverse(obs, action, next_obs)
-                        transition_loss = neg_log_prob.mean()
-                    else:
-                        next_latent_mean_pred, next_latent_log_var_pred = self.acmodel.transition_forward(obs, action)
-                        next_latent_mean, _ = self.acmodel.vae_encode(next_obs)
-                    
-                        transition_loss = (next_latent_mean_pred - next_latent_mean)**2 / torch.exp(next_latent_log_var_pred)
-                        transition_loss = transition_loss.mean()
-                    '''
-                        except:
+                    try:
+                        obs = sb.obs
+                        sb_next = exps[inds + i + 1]
+                        next_obs = sb_next.obs
+                        action = sb.action
+                        if self.flow:
+                            _, neg_log_prob = self.acmodel.transition_flow_inverse(obs, action, next_obs)
+                            transition_loss = neg_log_prob.mean()
+                        else:
+                            next_latent_mean_pred, next_latent_log_var_pred = self.acmodel.transition_forward(obs, action)
+                            next_latent_mean, _ = self.acmodel.vae_encode(next_obs)
+                        
+                            transition_loss = (next_latent_mean_pred - next_latent_mean)**2 / torch.exp(next_latent_log_var_pred)
+                            transition_loss = transition_loss.mean()
+                    except:
                         # Note: This except block is here for when the indices are already at the final observations in the batch, 
                         #       so there are no next observations to index.
                         pass
-                    '''
+                    
                     # Compute VAE loss
                     recon_obs_mu, recon_obs_logvar, mu, logvar = self.acmodel.vae_forward(sb.obs)
                     reconstruction_normal_dist = torch.distributions.normal.Normal(recon_obs_mu[:, :, :-1, :-1], torch.exp(0.5*recon_obs_logvar[:, :, :-1, :-1]))
