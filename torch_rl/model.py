@@ -4,6 +4,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.distributions.categorical import Categorical
 import torch_rl
+from flow_network import MAF
 import gym
 from bottleneck import Bottleneck
 
@@ -19,7 +20,7 @@ def initialize_parameters(m):
 class ACModel(nn.Module):
     def __init__(self, obs_space, action_space, model_type="default", use_bottleneck=False,
                  dropout=0, use_l2a=False, use_bn=False, sni_type=None, flow: bool = False,
-                 flow_depth: int = 3, num_latent_channels: int = 32):
+                 flow_depth: int = 4, num_latent_channels: int = 32):
         super().__init__()
 
         # Decide which components are enabled
@@ -63,6 +64,7 @@ class ACModel(nn.Module):
 
         print(flow)
         if flow:
+            self.flow_model = MAF(self.embedding_size, 128, 4, 20, self.embedding_size + action_space.n)
             self.flow_estimator = nn.Sequential(
                 nn.Linear(self.embedding_size + action_space.n, 128),
                 nn.ReLU(),
@@ -149,8 +151,7 @@ class ACModel(nn.Module):
         W = torch.zeros(latent_obs.shape[0] * self.flow_depth, self.embedding_size, self.embedding_size, device=latent_obs.device)
         W[batch_idxs,idxs[0],idxs[1]] = flow_theta.view(-1)
         batch_diag = torch.eye(W.shape[-1], device=W.device).unsqueeze(0).repeat(W.shape[0], 1, 1).bool()
-        W += batch_diag
-        W[batch_diag] = F.softplus(W[batch_diag])
+        W[batch_diag] = 1 + F.softplus(W[batch_diag])
         W = W.view(latent_obs.shape[0], self.flow_depth, self.embedding_size, self.embedding_size)
         if inverse:
             return W, W.inverse()
@@ -161,6 +162,7 @@ class ACModel(nn.Module):
         y[y<0] = y[y<0] / coef
     
     def transition_flow_forward(self, obs, action, lr_coef: float = 0.1):
+        assert False
         latent_obs, _ = self.vae_encode(obs)
         W = self._get_flow_weights(latent_obs, action)
         z = torch.empty_like(latent_obs.view(latent_obs.shape[0], -1)).normal_()
@@ -174,31 +176,40 @@ class ACModel(nn.Module):
     def transition_flow_inverse(self, obs, action, next_obs, lr_coef: float = 0.1):
         latent_obs, _ = self.vae_encode(obs)
         next_latent_obs, _ = self.vae_encode(next_obs)
+
+        one_hot_action = torch.zeros(latent_obs.shape[0], self.action_space.n, device=latent_obs.device)
+        one_hot_action[torch.arange(latent_obs.shape[0], device=latent_obs.device).long(), action.long()] = 1
+
+        log_prob = self.flow_model.log_probs(next_latent_obs.view(next_latent_obs.shape[0], -1), torch.cat((latent_obs.view(latent_obs.shape[0], -1), one_hot_action), -1))
+        print(-log_prob)
+        return _, -log_prob
+        
         W, Winv = self._get_flow_weights(latent_obs, action, inverse=True)
         x = next_latent_obs.view(next_latent_obs.shape[0], -1)
+        x_ = x
         log_det = torch.zeros(x.shape[0], device=x.device)
         for idx in reversed(range(self.flow_depth)):
             if idx < self.flow_depth - 1:
                 self._inv_lr(x)
 
                 act_jacob = torch.ones_like(x)
-                act_jacob[x<0] = lr_coef
+                act_jacob[x<0] = 1/lr_coef
                 log_det += act_jacob.log().sum(-1)
-            
+
             x = torch.bmm(Winv[:,idx], x.unsqueeze(-1)).squeeze(-1)
 
-            weights = W[:,idx]
+            weights = Winv[:,idx]
             eye = torch.eye(weights.shape[-1], device=W.device).unsqueeze(0).repeat(weights.shape[0], 1, 1).bool()
             diag = weights[eye].view(weights.shape[0], self.embedding_size)
             w_log_det = diag.log().sum(-1)
-
+            
             log_det += w_log_det
 
         log_prob = torch.distributions.Normal(torch.zeros(self.embedding_size, device=x.device),
                                               torch.ones(self.embedding_size, device=x.device)).log_prob(x).sum(-1)
         
-        loss = -(log_prob - log_det).mean()
-        print(x.shape[0], latent_obs.shape, log_prob.mean().detach().item(), log_det.mean().detach().item(), loss.detach().item(), W.pow(2).mean())
+        loss = -(log_prob + log_det).mean()
+        print(log_prob.mean().detach().item(), log_det.mean().detach().item(), loss.detach().item(), W.pow(2).mean())
         return x, loss
 
     # RL agent functions.

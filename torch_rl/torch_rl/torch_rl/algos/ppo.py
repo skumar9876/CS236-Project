@@ -91,7 +91,7 @@ class PPOAlgo(BaseAlgo):
                         # Note: This except block is here for when the indices are already at the final observations in the batch, 
                         #       so there are no next observations to index.
                         pass
-                    
+
                     # Compute VAE loss
                     recon_obs_mu, recon_obs_logvar, mu, logvar = self.acmodel.vae_forward(sb.obs)
                     reconstruction_normal_dist = torch.distributions.normal.Normal(recon_obs_mu[:, :, :-1, :-1], torch.exp(0.5*recon_obs_logvar[:, :, :-1, :-1]))
