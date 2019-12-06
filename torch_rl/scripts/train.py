@@ -20,6 +20,7 @@ from torch_rl.utils import ParallelEnv
 # Parse arguments
 
 parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
+parser.add_argument('--n_flows', type=int, default=2)
 parser.add_argument("--algo", required=True,
                     help="algorithm to use: a2c | ppo (REQUIRED)")
 parser.add_argument("--env", required=True,
@@ -168,7 +169,7 @@ except OSError:
     acmodel = ACModel(obs_space, envs[0].action_space, args.model_type,
                       use_bottleneck=args.use_bottleneck, dropout=args.use_dropout, 
                       use_l2a=args.use_l2a, use_bn=args.use_bn, sni_type=args.sni_type, 
-                      flow=args.flow, num_latent_channels=args.num_latent_channels)
+                      flow=args.flow, n_flows=args.n_flows, num_latent_channels=args.num_latent_channels)
 
     logger.info("Model successfully created\n")
 logger.info("{}\n".format(acmodel))

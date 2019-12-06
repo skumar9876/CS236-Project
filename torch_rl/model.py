@@ -20,7 +20,7 @@ def initialize_parameters(m):
 class ACModel(nn.Module):
     def __init__(self, obs_space, action_space, model_type="default", use_bottleneck=False,
                  dropout=0, use_l2a=False, use_bn=False, sni_type=None, flow: bool = False,
-                 flow_depth: int = 4, num_latent_channels: int = 32):
+                 n_flows: int = 4, flow_depth: int = 4, num_latent_channels: int = 32):
         super().__init__()
 
         # Decide which components are enabled
@@ -64,7 +64,7 @@ class ACModel(nn.Module):
 
         print(flow)
         if flow:
-            self.flow_model = MAF(self.embedding_size, 128, 4, 20, self.embedding_size + action_space.n)
+            self.flow_model = MAF(self.embedding_size, 128, 2, n_flows, self.embedding_size + action_space.n)
             self.flow_estimator = nn.Sequential(
                 nn.Linear(self.embedding_size + action_space.n, 128),
                 nn.ReLU(),
